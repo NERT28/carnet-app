@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f5d2f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Carnet de bord</title>
+<style>
+  :root { --vert:#2f5d2f; --vert2:#3f7d3f; --fond:#f4f1e8; --rouge:#b3261e; --txt:#1c1c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--fond); color:var(--txt);
+         min-height:100vh; display:flex; flex-direction:column; padding:env(safe-area-inset-top) 16px 16px; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 0; }
+  h1 { font-size:1.3rem; margin:0; color:var(--vert); }
+  #etat { font-size:.9rem; padding:4px 10px; border-radius:12px; background:#ddd; }
+  #etat.ok { background:#cfe8cf; } #etat.att { background:#f6dfb0; } #etat.err { background:#f3c4c0; }
+  button { font:inherit; border:0; border-radius:14px; cursor:pointer; }
+  #micro { width:100%; min-height:34vh; font-size:2rem; font-weight:700; color:#fff; background:var(--vert);
+           box-shadow:0 4px 0 #1f3f1f; margin:8px 0 14px; }
+  #micro.ecoute { background:var(--rouge); box-shadow:0 4px 0 #7a1812; animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { transform:scale(.985); } }
+  textarea { width:100%; min-height:28vh; font:inherit; font-size:1.25rem; padding:12px; border-radius:12px;
+             border:2px solid #cfc9b6; background:#fff; resize:vertical; }
+  .ligne { display:flex; gap:10px; margin-top:12px; }
+  .ligne button { flex:1; padding:18px 8px; font-size:1.2rem; font-weight:600; }
+  #envoyer { background:var(--vert2); color:#fff; } #effacer { background:#ddd8c6; }
+  #reglages { background:none; font-size:1.6rem; padding:4px 8px; }
+  h2 { font-size:1rem; margin:20px 0 6px; color:var(--vert); }
+  ul { list-style:none; padding:0; margin:0; }
+  li { background:#fff; border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:1rem; }
+  li small { color:#666; display:block; margin-bottom:2px; }
+  dialog { width:min(94vw,520px); border:0; border-radius:16px; padding:18px; }
+  dialog label { display:block; margin:10px 0 4px; font-weight:600; }
+  dialog input { width:100%; padding:12px; font-size:1rem; border:2px solid #cfc9b6; border-radius:10px; }
+  dialog .aide { font-size:.85rem; color:#555; margin-top:4px; }
+  #msg { min-height:1.4em; margin-top:10px; font-size:.95rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Carnet de bord</h1>
+  <span id="etat">…</span>
+  <button id="reglages" aria-label="Réglages">⚙️</button>
+</header>
+
+<button id="micro">🎤 Dicter</button>
+<textarea id="texte" placeholder="Le texte dicté apparaît ici. Vous pouvez le corriger avant d'envoyer."></textarea>
+<div class="ligne">
+  <button id="effacer">Effacer</button>
+  <button id="envoyer">Enregistrer</button>
+</div>
+<div id="msg"></div>
+
+<h2>Dernières notes</h2>
+<ul id="histo"></ul>
+
+<dialog id="dlg">
+  <h2 style="margin-top:0">Réglages</h2>
+  <label for="repo">Dépôt GitHub</label>
+  <input id="repo" placeholder="NERT28/carnet-ferme">
+  <label for="fichier">Fichier du carnet</label>
+  <input id="fichier" placeholder="carnet-de-bord.md">
+  <label for="token">Jeton d'accès GitHub</label>
+  <input id="token" type="password" placeholder="github_pat_…">
+  <div class="aide">Le jeton reste uniquement sur ce téléphone. Il doit avoir le droit « Contents : lecture et écriture » sur le dépôt carnet-ferme.</div>
+  <div class="ligne"><button id="fermer" style="background:#ddd8c6">Annuler</button><button id="sauver" style="background:var(--vert2);color:#fff">Enregistrer</button></div>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const get = (k, d='') => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const set = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+let cfg = {
+  repo: get('repo', 'NERT28/carnet-ferme'),
+  fichier: get('fichier', 'carnet-de-bord.md'),
+  token: get('token', '')
+};
+let file = JSON.parse(get('file', '[]'));      // notes en attente d'envoi
+let histo = JSON.parse(get('histo', '[]'));    // dernières notes envoyées
+
+function maj() {
+  set('file', JSON.stringify(file));
+  set('histo', JSON.stringify(histo.slice(0, 10)));
+  const e = $('etat');
+  if (!cfg.token) { e.textContent = 'Jeton manquant'; e.className = 'err'; }
+  else if (file.length) { e.textContent = file.length + ' en attente'; e.className = 'att'; }
+  else { e.textContent = 'Tout est envoyé'; e.className = 'ok'; }
+  $('histo').innerHTML = [...file.map(n => ({...n, att:true})), ...histo].slice(0, 10)
+    .map(n => `<li><small>${n.date}${n.att ? ' — en attente' : ''}</small>${esc(n.texte)}</li>`).join('');
+}
+const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const dire = (t, bad) => { $('msg').textContent = t; $('msg').style.color = bad ? 'var(--rouge)' : 'inherit'; };
+
+function horodatage() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* ---------- Dictée ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, ecoute = false, base = '';
+function demarrer() {
+  if (!SR) { dire("La dictée n'est pas disponible dans ce navigateur. Utilisez Chrome, ou le micro du clavier.", true); return; }
+  base = $('texte').value ? $('texte').value.trim() + ' ' : '';
+  rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = ev => {
+    let t = '';
+    for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+    $('texte').value = base + t.trim();
+  };
+  rec.onerror = ev => { if (ev.error !== 'no-speech') dire('Dictée : ' + ev.error, true); };
+  rec.onend = () => { if (ecoute) { base = $('texte').value.trim() + ' '; try { rec.start(); } catch {} } };
+  rec.start(); ecoute = true;
+  $('micro').classList.add('ecoute'); $('micro').textContent = '⏹ Arrêter';
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
+}
+function arreter() {
+  ecoute = false; try { rec && rec.stop(); } catch {}
+  $('micro').classList.remove('ecoute'); $('micro').textContent = '🎤 Dicter';
+}
+$('micro').onclick = () => ecoute ? arreter() : demarrer();
+$('effacer').onclick = () => { arreter(); $('texte').value = ''; dire(''); };
+
+/* ---------- Envoi vers GitHub ---------- */
+const b64enc = s => { const b = new TextEncoder().encode(s); let r = ''; b.forEach(x => r += String.fromCharCode(x)); return btoa(r); };
+const b64dec = s => { const r = atob(s.replace(/\n/g, '')); return new TextDecoder().decode(Uint8Array.from(r, c => c.charCodeAt(0))); };
+
+async function ajouterAuCarnet(lignes) {
+  const url = `https://api.github.com/repos/${cfg.repo}/contents/${cfg.fichier}`;
+  const h = { Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json' };
+  for (let essai = 0; essai < 3; essai++) {
+    const r = await fetch(url, { headers: h });
+    let contenu = '', sha;
+    if (r.ok) { const j = await r.json(); contenu = b64dec(j.content); sha = j.sha; }
+    else if (r.status !== 404) throw new Error('Lecture refusée (' + r.status + ')');
+    if (contenu && !contenu.endsWith('\n')) contenu += '\n';
+    contenu += lignes.join('\n') + '\n';
+    const p = await fetch(url, { method: 'PUT', headers: h,
+      body: JSON.stringify({ message: 'Dictée du ' + horodatage(), content: b64enc(contenu), sha }) });
+    if (p.ok) return;
+    if (p.status !== 409 && p.status !== 422) throw new Error('Écriture refusée (' + p.status + ')');
+  }
+  throw new Error('Conflit, réessayez');
+}
+
+let enCours = false;
+async function vider() {
+  if (enCours || !file.length || !cfg.token || !navigator.onLine) return;
+  enCours = true;
+  try {
+    const lot = file.slice();
+    await ajouterAuCarnet(lot.map(n => `- [${n.date}] ${n.texte}`));
+    file = file.slice(lot.length); histo = [...lot.reverse(), ...histo];
+    dire('Envoyé ✔');
+  } catch (e) { dire(e.message, true); }
+  enCours = false; maj();
+}
+
+$('envoyer').onclick = () => {
+  arreter();
+  const t = $('texte').value.trim();
+  if (!t) { dire('Rien à enregistrer.', true); return; }
+  file.push({ date: horodatage(), texte: t });
+  $('texte').value = ''; dire(cfg.token ? 'Enregistré, envoi…' : 'Enregistré sur le téléphone. Ajoutez le jeton dans les réglages.');
+  maj(); vider();
+};
+window.addEventListener('online', vider);
+setInterval(vider, 60000);
+
+/* ---------- Réglages ---------- */
+$('reglages').onclick = () => { $('repo').value = cfg.repo; $('fichier').value = cfg.fichier; $('token').value = cfg.token; $('dlg').showModal(); };
+$('fermer').onclick = () => $('dlg').close();
+$('sauver').onclick = () => {
+  cfg = { repo: $('repo').value.trim(), fichier: $('fichier').value.trim(), token: $('token').value.trim() };
+  set('repo', cfg.repo); set('fichier', cfg.fichier); set('token', cfg.token);
+  $('dlg').close(); maj(); vider();
+};
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+maj(); vider();
+</script>
+</body>
+</html>

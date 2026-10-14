@@ -1,0 +1,15 @@
+{
+  "name": "Carnet de bord",
+  "short_name": "Carnet",
+  "description": "Carnet de bord de la ferme, dicté à la voix",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f1e8",
+  "theme_color": "#2f5d2f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
