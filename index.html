@@ -171,9 +171,37 @@ async function vider() {
   enCours = false; maj();
 }
 
+/* ---------- Corrections (noms de parcelles, produits…) ----------
+   Liste « entendu;correct » lue dans corrections.csv du dépôt carnet-ferme,
+   gardée sur le téléphone pour fonctionner sans réseau. */
+let corrections = JSON.parse(get('corr', '[]'));
+async function chargerCorrections() {
+  if (!cfg.token || !navigator.onLine) return;
+  try {
+    const dossier = cfg.fichier.includes('/') ? cfg.fichier.replace(/[^/]*$/, '') : '';
+    const r = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${dossier}corrections.csv`,
+      { headers: { Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json' } });
+    if (!r.ok) return;
+    const j = await r.json();
+    corrections = b64dec(j.content).split('\n')
+      .map(l => l.trim()).filter(l => l && !l.startsWith('#') && l.includes(';'))
+      .map(l => { const i = l.indexOf(';'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })
+      .filter(([a, b]) => a && b)
+      .sort((x, y) => y[0].length - x[0].length);       // les expressions longues d'abord
+    set('corr', JSON.stringify(corrections));
+  } catch {}
+}
+function corriger(t) {
+  for (const [a, b] of corrections) {
+    const motif = a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    t = t.replace(new RegExp('(?<![\\p{L}\\p{N}])' + motif + '(?![\\p{L}\\p{N}])', 'giu'), () => b);
+  }
+  return t;
+}
+
 $('envoyer').onclick = () => {
   arreter();
-  const t = $('texte').value.trim();
+  const t = corriger($('texte').value.trim());
   if (!t) { dire('Rien à enregistrer.', true); return; }
   file.push({ date: horodatage(), texte: t });
   $('texte').value = ''; dire(cfg.token ? 'Enregistré, envoi…' : 'Enregistré sur le téléphone. Ajoutez le jeton dans les réglages.');
@@ -188,11 +216,11 @@ $('fermer').onclick = () => $('dlg').close();
 $('sauver').onclick = () => {
   cfg = { repo: $('repo').value.trim(), fichier: $('fichier').value.trim(), token: $('token').value.trim() };
   set('repo', cfg.repo); set('fichier', cfg.fichier); set('token', cfg.token);
-  $('dlg').close(); maj(); vider();
+  $('dlg').close(); maj(); vider(); chargerCorrections();
 };
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-maj(); vider();
+maj(); vider(); chargerCorrections();
 </script>
 </body>
 </html>
