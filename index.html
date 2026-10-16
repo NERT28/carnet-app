@@ -103,18 +103,29 @@ function horodatage() {
 /* ---------- Dictée ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, ecoute = false, base = '';
+/* Sur Android, le mode « continu » répète les mots (bégaiement). On écoute donc
+   phrase par phrase : chaque phrase est validée à la fin, puis l'écoute repart. */
+function lancer() {
+  rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = false; rec.interimResults = true;
+  rec.onresult = ev => {
+    const r = ev.results[ev.results.length - 1];       // uniquement la dernière phrase en cours
+    $('texte').value = (base + r[0].transcript).trim();
+  };
+  rec.onerror = ev => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+      dire("Micro refusé : autorisez le micro pour ce site dans Chrome.", true); arreter();
+    } else if (ev.error !== 'no-speech' && ev.error !== 'aborted') dire('Dictée : ' + ev.error, true);
+  };
+  rec.onend = () => {
+    base = $('texte').value.trim(); if (base) base += ' ';   // valide la phrase
+    if (ecoute) setTimeout(lancer, 150);                     // et repart
+  };
+  try { rec.start(); } catch {}
+}
 function demarrer() {
   if (!SR) { dire("La dictée n'est pas disponible dans ce navigateur. Utilisez Chrome, ou le micro du clavier.", true); return; }
   base = $('texte').value ? $('texte').value.trim() + ' ' : '';
-  rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = true;
-  rec.onresult = ev => {
-    let t = '';
-    for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
-    $('texte').value = base + t.trim();
-  };
-  rec.onerror = ev => { if (ev.error !== 'no-speech') dire('Dictée : ' + ev.error, true); };
-  rec.onend = () => { if (ecoute) { base = $('texte').value.trim() + ' '; try { rec.start(); } catch {} } };
-  rec.start(); ecoute = true;
+  ecoute = true; lancer();
   $('micro').classList.add('ecoute'); $('micro').textContent = '⏹ Arrêter';
   if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
 }
